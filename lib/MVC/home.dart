@@ -1,57 +1,96 @@
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'package:sensors_plus/sensors_plus.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../Data/database_helper.dart';
+import 'login.dart';
+import '../Data/HolidaysAPI.dart';
+import 'app_drawer.dart';
+import '../main.dart';
 
-class HomePage extends StatefulWidget {
+class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
 
   @override
-  HomePageState createState() => HomePageState();
+  ConsumerState<HomePage> createState() => _HomePageState();
 }
 
-class HomePageState extends State<HomePage> {
+class _HomePageState extends ConsumerState<HomePage> {
   DateTime _selectedDay = DateTime.now();
   DateTime _focusedDay = DateTime.now();
-  final Map<DateTime, List<Map<String, dynamic>>> _events = {};
+  List<Map<String, dynamic>> _events = [];
+  Map<DateTime, List<Map<String, dynamic>>> _eventMap = {};
+  Set<DateTime> _daysWithGroupEvents = {};
+  int? _selectedGroupId;
+  List<Map<String, dynamic>> _groups = [];
   CalendarFormat _calendarFormat = CalendarFormat.month;
-  final List<String> _calendarFormats = ['Teden', 'Mesec'];
-
-  bool _isLandscape = false;
 
   @override
   void initState() {
     super.initState();
+    _fetchAndSaveHolidays();
+    _loadGroups();
+    _loadAllEvents();
+    _loadEventsForDay(_selectedDay);
+  }
 
-    // Listen for accelerometer changes to detect orientation
-    accelerometerEvents.listen((event) {
-      double x = event.x;
-      double y = event.y;
-      double z = event.z;
-
-      // Determine if the device is in landscape orientation
-      bool isLandscape = (x.abs() > y.abs()) && z.abs() < 2.0;
-
-      if (isLandscape != _isLandscape) {
-        setState(() {
-          _isLandscape = isLandscape;
-          _calendarFormat = _isLandscape ? CalendarFormat.week : CalendarFormat.month;
-        });
-      }
+  Future<void> _loadGroups() async {
+    final groups = await DatabaseHelper.instance.getGroups();
+    setState(() {
+      _groups = groups;
     });
   }
 
+  Future<void> _loadAllEvents() async {
+    final dbHelper = DatabaseHelper.instance;
+    final allEvents = await dbHelper.getAllEvents();
+    final eventMap = <DateTime, List<Map<String, dynamic>>>{};
+    final groupEventDays = <DateTime>{};
 
+    for (var event in allEvents) {
+      final eventDate = DateTime.parse(event['date']);
+      eventMap[eventDate] ??= [];
+      eventMap[eventDate]!.add(event);
+
+      if (_selectedGroupId != null && event['group_id'] == _selectedGroupId) {
+        groupEventDays.add(eventDate);
+      }
+    }
+
+    setState(() {
+      _eventMap = eventMap;
+      _daysWithGroupEvents = groupEventDays;
+    });
+  }
+
+  Future<void> _fetchAndSaveHolidays() async {
+    final holidays = await fetchPublicHolidaysForCurrentYear();
+    print("Holidays fetched and saved: $holidays");
+    _loadAllEvents();
+  }
+
+  Future<void> _loadEventsForDay(DateTime date) async {
+    final formattedDate = _formatDate(date);
+    final events = await DatabaseHelper.instance.getEventsByDate(formattedDate);
+    setState(() {
+      _events = events;
+    });
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
+    final isDarkTheme = ref.watch(themeProvider);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'My Events',
+          'Dogodki',
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24),
         ),
-        backgroundColor: Colors.blueAccent,
+        backgroundColor: isDarkTheme ? Colors.black : Colors.blueAccent,
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
@@ -62,22 +101,28 @@ class HomePageState extends State<HomePage> {
                   setState(() {
                     if (newValue == 'Mesec') {
                       _calendarFormat = CalendarFormat.month;
-                    } else {
+                    } else if (newValue == 'Teden') {
                       _calendarFormat = CalendarFormat.week;
                     }
                   });
                 },
-                items: _calendarFormats
+                items: ['Mesec', 'Teden']
                     .map((format) => DropdownMenuItem<String>(
-                  value: format,
-                  child: Text(format),
-                ))
+                          value: format,
+                          child: Text(format),
+                        ))
                     .toList(),
                 icon: const Icon(Icons.calendar_view_month, color: Colors.white),
               ),
             ),
           ),
         ],
+      ),
+      drawer: AppDrawer(
+        isDarkTheme: isDarkTheme,
+        onThemeChanged: (bool value) {
+          ref.read(themeProvider.notifier).state = value;
+        },
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -101,21 +146,63 @@ class HomePageState extends State<HomePage> {
                       _selectedDay = selectedDay;
                       _focusedDay = focusedDay;
                     });
+                    _loadEventsForDay(selectedDay);
                   },
                   calendarStyle: const CalendarStyle(
-                    selectedDecoration: BoxDecoration(
-                      color: Colors.blueAccent,
-                      shape: BoxShape.circle,
-                    ),
                     todayDecoration: BoxDecoration(
                       color: Colors.orangeAccent,
                       shape: BoxShape.circle,
                     ),
-                    markersMaxCount: 1,
-                    markerDecoration: BoxDecoration(
-                      color: Colors.blueAccent,
-                      shape: BoxShape.circle,
-                    ),
+                  ),
+                  calendarBuilders: CalendarBuilders(
+                    defaultBuilder: (context, date, _) {
+                      final normalizedDate = DateTime(date.year, date.month, date.day);
+
+                      if (_daysWithGroupEvents.contains(normalizedDate)) {
+                        return Container(
+                          decoration: const BoxDecoration(
+                            color: Colors.red,
+                            shape: BoxShape.circle,
+                          ),
+                          margin: const EdgeInsets.all(6.0),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '${date.day}',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        );
+                      } else if (_eventMap[normalizedDate] != null &&
+                          _eventMap[normalizedDate]!
+                              .any((e) => e['is_holiday'] == 1)) {
+                        return Container(
+                          decoration: const BoxDecoration(
+                            color: Colors.blue,
+                            shape: BoxShape.circle,
+                          ),
+                          margin: const EdgeInsets.all(6.0),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '${date.day}',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        );
+                      } else if (_eventMap[normalizedDate] != null &&
+                          _eventMap[normalizedDate]!.isNotEmpty) {
+                        return Container(
+                          decoration: const BoxDecoration(
+                            color: Colors.green,
+                            shape: BoxShape.circle,
+                          ),
+                          margin: const EdgeInsets.all(6.0),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '${date.day}',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        );
+                      }
+                      return null;
+                    },
                   ),
                   headerStyle: const HeaderStyle(
                     formatButtonVisible: false,
@@ -125,69 +212,95 @@ class HomePageState extends State<HomePage> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  eventLoader: (day) => _events[day] ?? [],
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 10),
+            DropdownButton<int>(
+              value: _selectedGroupId,
+              isExpanded: true,
+              hint: const Text("Select Group"),
+              items: _groups.map((group) {
+                return DropdownMenuItem<int>(
+                  value: group['id'],
+                  child: Text(group['name']),
+                );
+              }).toList(),
+              onChanged: (value) {
+                setState(() {
+                  _selectedGroupId = value;
+                  _loadAllEvents();
+                });
+              },
+            ),
+            const SizedBox(height: 10),
             Expanded(
-              child: ListView(
-                children: (_events[_selectedDay] ?? [])
-                    .map((event) => Dismissible(
-                  key: Key(event['name']),
-                  background: Container(
-                    color: Colors.blue,
-                    alignment: Alignment.centerLeft,
-                    padding: const EdgeInsets.only(left: 20),
-                    child: const Icon(Icons.edit, color: Colors.white),
-                  ),
-                  secondaryBackground: Container(
-                    color: Colors.red,
-                    alignment: Alignment.centerRight,
-                    padding: const EdgeInsets.only(right: 20),
-                    child: const Icon(Icons.delete, color: Colors.white),
-                  ),
-                  confirmDismiss: (direction) async {
-                    if (direction == DismissDirection.startToEnd) {
-                      _editEventDialog(context, event);
-                      return false;
-                    } else if (direction == DismissDirection.endToStart) {
-                      return await _confirmDeleteDialog(context);
-                    }
-                    return false;
-                  },
-                  onDismissed: (direction) {
-                    setState(() {
-                      _events[_selectedDay]?.remove(event);
-                    });
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Dogodek zbrisan")),
-                    );
-                  },
-                  child: Card(
-                    margin: const EdgeInsets.symmetric(vertical: 5),
-                    elevation: 3,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+              child: ListView.builder(
+                itemCount: _events.length,
+                itemBuilder: (context, index) {
+                  final event = _events[index];
+                  return Dismissible(
+                    key: Key(event['id'].toString()),
+                    background: Container(
+                      color: Colors.red,
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 20.0),
+                      child: const Icon(Icons.delete, color: Colors.white),
                     ),
-                    child: ListTile(
-                      title: Text(
-                        event['name'],
-                        style: const TextStyle(fontWeight: FontWeight.w600),
+                    direction: DismissDirection.endToStart,
+                    confirmDismiss: (direction) async {
+                      final confirm = await showDialog<bool>(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: const Text("Confirm Deletion"),
+                              content: const Text(
+                                  "Are you sure you want to delete this event?"),
+                              actions: [
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.of(context).pop(false),
+                                  child: const Text("Cancel"),
+                                ),
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.of(context).pop(true),
+                                  child: const Text("Delete"),
+                                ),
+                              ],
+                            ),
+                          ) ??
+                          false;
+                      if (confirm) {
+                        await _deleteEvent(event['id']);
+                      }
+                      return confirm;
+                    },
+                    child: Card(
+                      margin: const EdgeInsets.symmetric(vertical: 5),
+                      elevation: 3,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      subtitle: Text(
-                        "Čas: ${event['time'].format(context)}",
-                        style: TextStyle(color: Colors.grey[700]),
+                      child: ListTile(
+                        title: Text(
+                          event['name'],
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        subtitle: Text(
+                          "Time: ${event['time']}",
+                          style: TextStyle(color: Colors.grey[700]),
+                        ),
+                        trailing: GestureDetector(
+                          onTap: () {
+                            print("Edit icon tapped for event: ${event['id']}");
+                            _editEventDialog(context, event);
+                          },
+                          child: const Icon(Icons.edit, color: Colors.blueAccent),
+                        ),
                       ),
-                      trailing: const Icon(
-                        Icons.edit,
-                        color: Colors.blueAccent,
-                      ),
-                      onTap: () => _editEventDialog(context, event),
                     ),
-                  ),
-                ))
-                    .toList(),
+                  );
+                },
               ),
             ),
           ],
@@ -200,32 +313,20 @@ class HomePageState extends State<HomePage> {
       ),
     );
   }
-  Future<bool> _confirmDeleteDialog(BuildContext context) async {
-    return await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(15),
-        ),
-        title: const Text("Potrdi izbris", style: TextStyle(fontWeight: FontWeight.bold)),
-        content: const Text("Ali žeilte zbrisati dogodek?"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text("prekini"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text("Zbriši", style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    ) ?? false;
+
+  Future<void> _deleteEvent(int eventId) async {
+    await DatabaseHelper.instance.deleteEvent(eventId);
+    _loadAllEvents();
+    _loadEventsForDay(_selectedDay);
   }
 
-  void _editEventDialog(BuildContext context, Map<String, dynamic> event) {
-    final TextEditingController eventController = TextEditingController(text: event['name']);
-    TimeOfDay selectedTime = event['time'];
+  void _addEventDialog(BuildContext context) async {
+    final TextEditingController eventController = TextEditingController();
+    TimeOfDay? selectedTime;
+    List<Map<String, dynamic>> groups = await DatabaseHelper.instance.getGroups();
+    List<Map<String, dynamic>> locations = await DatabaseHelper.instance.getLocations();
+    int? selectedGroupId;
+    int? selectedLocationId;
 
     showDialog(
       context: context,
@@ -235,66 +336,83 @@ class HomePageState extends State<HomePage> {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(15),
             ),
-            title: const Text("Uredi Dogodek", style: TextStyle(fontWeight: FontWeight.bold)),
+            title: const Text("Add Event"),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 TextField(
                   controller: eventController,
-                  decoration: const InputDecoration(hintText: "Uredi ime dogodka"),
+                  decoration: const InputDecoration(hintText: "Event Name"),
                 ),
-                const SizedBox(height: 10),
                 TextButton(
                   onPressed: () async {
-                    final pickedTime = await showTimePicker(
+                    selectedTime = await showTimePicker(
                       context: context,
-                      initialTime: selectedTime,
+                      initialTime: TimeOfDay.now(),
                     );
-                    if (pickedTime != null) {
-                      setState(() {
-                        selectedTime = pickedTime;
-                      });
-                    }
+                    setState(() {});
                   },
-                  child: Text("Čas: ${selectedTime.format(context)}"),
+                  child: Text(
+                    selectedTime == null
+                        ? "Select Time"
+                        : "Time: ${selectedTime!.format(context)}",
+                  ),
+                ),
+                DropdownButton<int>(
+                  value: selectedGroupId,
+                  isExpanded: true,
+                  hint: const Text("Select Group"),
+                  items: groups.map((group) {
+                    return DropdownMenuItem<int>(
+                      value: group['id'],
+                      child: Text(group['name']),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      selectedGroupId = value;
+                    });
+                  },
+                ),
+                DropdownButton<int>(
+                  value: selectedLocationId,
+                  isExpanded: true,
+                  hint: const Text("Select Location"),
+                  items: locations.map((location) {
+                    return DropdownMenuItem<int>(
+                      value: location['id'],
+                      child: Text(location['name']),
+                    );
+                  }).toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      selectedLocationId = value;
+                    });
+                  },
                 ),
               ],
             ),
             actions: [
               TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                },
-                child: const Text("Prekini"),
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Cancel"),
               ),
               TextButton(
-                onPressed: () {
-                  setState(() {
-                    if (eventController.text.isNotEmpty) {
-                      final eventIndex = _events[_selectedDay]!.indexOf(event);
-                      _events[_selectedDay]![eventIndex] = {
-                        'name': eventController.text,
-                        'time': selectedTime,
-                      };
-                      // Sort events by time
-                      _events[_selectedDay]!.sort((a, b) =>
-                      a['time'].hour.compareTo(b['time'].hour) == 0
-                          ? a['time'].minute.compareTo(b['time'].minute)
-                          : a['time'].hour.compareTo(b['time'].hour));
-                    }
-                  });
-                  Navigator.pop(context);
+                onPressed: () async {
+                  if (eventController.text.isNotEmpty && selectedTime != null) {
+                    final newEvent = {
+                      'date': _formatDate(_selectedDay),
+                      'name': eventController.text,
+                      'time': selectedTime!.format(context),
+                      'group_id': selectedGroupId,
+                      'location_id': selectedLocationId,
+                    };
+                    await DatabaseHelper.instance.insertEvent(newEvent);
+                    _loadEventsForDay(_selectedDay);
+                    Navigator.pop(context);
+                  }
                 },
-                child: const Text("Shrani", style: TextStyle(color: Colors.blueAccent)),
-              ),
-              TextButton(
-                onPressed: () {
-                  setState(() {
-                    _events[_selectedDay]?.remove(event);
-                  });
-                  Navigator.pop(context);
-                },
-                child: const Text("Zbriši", style: TextStyle(color: Colors.red)),
+                child: const Text("Add"),
               ),
             ],
           );
@@ -303,104 +421,62 @@ class HomePageState extends State<HomePage> {
     );
   }
 
-  void _addEventDialog(BuildContext context) {
-    final TextEditingController eventController = TextEditingController();
-    TimeOfDay? selectedTime;
+ void _editEventDialog(BuildContext context, Map<String, dynamic> event) async {
+  // Create a mutable copy of the event
+  final mutableEvent = Map<String, dynamic>.from(event);
+  final TextEditingController eventController =
+      TextEditingController(text: mutableEvent['name']);
 
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) {
-          final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
-          final dialogWidth = MediaQuery.of(context).size.width * (isLandscape ? 0.6 : 0.8);
-          final dialogHeight = MediaQuery.of(context).size.height * (isLandscape ? 0.6 : 0.4);
-
-          return Dialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(15),
-            ),
-            child: Container(
-              width: dialogWidth,
-              height: dialogHeight,
-              padding: const EdgeInsets.all(16),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      "Dodaj dogodek",
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: isLandscape ? 18 : 22,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextField(
-                      controller: eventController,
-                      decoration: const InputDecoration(
-                        hintText: "Ime dogodka",
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextButton(
-                      onPressed: () async {
-                        selectedTime = await showTimePicker(
-                          context: context,
-                          initialTime: TimeOfDay.now(),
-                        );
-                        if (selectedTime != null) {
-                          setState(() {}); // Trigger the dialog to rebuild and show selected time
-                        }
-                      },
-                      child: Text(
-                        selectedTime == null
-                            ? "Izberi čas"
-                            : "Čas: ${selectedTime!.format(context)}",
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text("Prekini"),
-                        ),
-                        ElevatedButton(
-                          onPressed: () {
-                            if (eventController.text.isNotEmpty && selectedTime != null) {
-                              setState(() {
-                                final newEvent = {
-                                  'name': eventController.text,
-                                  'time': selectedTime!,
-                                };
-                                if (_events[_selectedDay] != null) {
-                                  _events[_selectedDay]!.add(newEvent);
-                                } else {
-                                  _events[_selectedDay] = [newEvent];
-                                }
-                                // Sort events by time
-                                _events[_selectedDay]!.sort((a, b) =>
-                                a['time'].hour.compareTo(b['time'].hour) == 0
-                                    ? a['time'].minute.compareTo(b['time'].minute)
-                                    : a['time'].hour.compareTo(b['time'].hour));
-                              });
-                              Navigator.pop(context);
-                            }
-                          },
-                          child: const Text("Dodaj"),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text("Edit Event"),
+      content: TextField(
+        controller: eventController,
+        decoration: const InputDecoration(hintText: "Event Name"),
       ),
-    );
-  }
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("Cancel"),
+        ),
+        TextButton(
+          onPressed: () async {
+            final newName = eventController.text.trim();
+            if (newName.isNotEmpty) {
+              try {
+                // Update the mutable copy
+                mutableEvent['name'] = newName;
 
+                // Update the event in the database
+                await DatabaseHelper.instance.updateEvent(mutableEvent);
+
+                // Reload events to reflect the updated name
+                _loadAllEvents();
+                _loadEventsForDay(_selectedDay);
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Event updated successfully")),
+                );
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Failed to update event: $e")),
+                );
+              }
+            } else {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Event name cannot be empty")),
+              );
+            }
+
+            Navigator.pop(context); // Close the dialog
+          },
+          child: const Text("Save"),
+        ),
+      ],
+    ),
+  );
+}
 
 }
+

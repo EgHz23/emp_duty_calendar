@@ -2,21 +2,53 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'Data/DataBase.dart';
+import 'Data/database_helper.dart';
 import 'Data/HolidaysAPI.dart';
 import 'MVC/Model.dart';
-import 'MVC/StateNotifier.dart';
 import 'MVC/login.dart';
 
-// Provider to manage the app theme
-/*
-final themeNotifierProvider = StateNotifierProvider<ThemeNotifier, ThemeMode>(
-      (ref) => ThemeNotifier(),
-);*/
+// StateProvider for managing theme state
+final themeProvider = StateProvider<bool>((ref) => false);
+
+// Function to insert initial data
+Future<void> insertInitialData() async {
+  final dbHelper = DatabaseHelper.instance;
+
+  // Insert Groups
+  final groups = [
+    {'name': 'DevOps'},
+    {'name': 'Software'},
+    {'name': 'Network'},
+    {'name': 'Security'},
+    {'name': 'DC'},
+  ];
+
+  for (var group in groups) {
+    await dbHelper.insertGroup(group);
+  }
+
+  // Insert Locations
+  final locations = [
+    {'name': 'Sejna soba 100', 'address': 'Building A'},
+    {'name': 'Sejna soba 200', 'address': 'Building B'},
+    {'name': 'Sejna soba 300', 'address': 'Building C'},
+    {'name': 'Zunanji objekt', 'address': 'Outdoor Facility'},
+  ];
+
+  for (var location in locations) {
+    await dbHelper.insertLocation(location);
+  }
+
+  print("Initial data inserted: Groups and Locations");
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load holidays -> either from local file or API(if not in local file)
+  // Insert initial data for groups and locations
+  await insertInitialData();
+
+  // Load holidays -> either from local file or API (if not in local file)
   yearlyHolidays = await loadHolidays();
   if (yearlyHolidays.isEmpty) {
     print("No holidays found in local storage, fetching from API...");
@@ -25,6 +57,7 @@ Future<void> main() async {
       await saveHolidays(yearlyHolidays);
     }
   }
+
   runApp(
     const ProviderScope(
       child: MyApp(),
@@ -37,13 +70,14 @@ class MyApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    //final themeMode = ref.watch(themeNotifierProvider);
+    // Watch the theme state
+    final isDarkTheme = ref.watch(themeProvider);
 
     return MaterialApp(
       title: 'Flutter App',
-      theme: ThemeData.light(), // Define your light theme here
-      darkTheme: ThemeData.dark(), // Define your dark theme here
-      //themeMode: themeMode, // Dynamically changes theme based on provider
+      theme: ThemeData.light(),
+      darkTheme: ThemeData.dark(),
+      themeMode: isDarkTheme ? ThemeMode.dark : ThemeMode.light,
       home: const Login(),
     );
   }

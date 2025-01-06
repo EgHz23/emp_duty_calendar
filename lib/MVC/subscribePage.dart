@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'Model.dart';
+import '../Data/database_helper.dart';
 import 'login.dart';
 
 class SubscribePage extends StatefulWidget {
@@ -10,11 +10,10 @@ class SubscribePage extends StatefulWidget {
 }
 
 class SubscribePageState extends State<SubscribePage> {
-  bool isLoggedIn = false;
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   final TextEditingController confirmPasswordController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   @override
   void dispose() {
@@ -26,46 +25,43 @@ class SubscribePageState extends State<SubscribePage> {
 
   Future<void> registerUser() async {
     if (_formKey.currentState!.validate()) {
-      final email = emailController.text;
-      final password = passwordController.text;
-
-      // Create a new user
-      final newUser = User(email: email, password: password);
-
-      // save to database
-      //final apiService = locator<ApiService>();
+      final email = emailController.text.trim();
+      final password = passwordController.text.trim();
 
       try {
-        //await apiService.postUsers([newUser]);
+        // Check if the email already exists
+        final emailAlreadyExists = await DatabaseHelper.instance.emailExists(email);
+        if (emailAlreadyExists) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("E-poštni naslov je že registriran.")),
+          );
+          return;
+        }
+
+        // Register the user in the database
+        await DatabaseHelper.instance.registerUser(email, password);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Registracija je bila uspešna!")),
         );
-        // Navigate to the Login page
-        Navigator.push(
+
+        // Navigate to the login page
+        Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (context) => const Login()),
         );
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Prišlo je do napake: $e')),
+          SnackBar(content: Text("Napaka pri registraciji: $e")),
         );
       }
-
-      // Simulate saving to a database
-      //localUsersList.add(newUser);
-      //await saveUsersList(localUsersList);
-
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
-    // parameters
-    var contextSizeHeight = MediaQuery.of(context).size.height;
-    var contextSizeWidth = MediaQuery.of(context).size.width;
+    final double contextSizeHeight = MediaQuery.of(context).size.height;
+    final double contextSizeWidth = MediaQuery.of(context).size.width;
 
-    // design
     return Scaffold(
       backgroundColor: Colors.white,
       body: SizedBox(
@@ -97,7 +93,7 @@ class SubscribePageState extends State<SubscribePage> {
                             "Registracija",
                             style: TextStyle(
                               fontWeight: FontWeight.w700,
-                              fontSize: 20,
+                              fontSize: 24,
                               color: Colors.black,
                             ),
                           ),
@@ -105,14 +101,9 @@ class SubscribePageState extends State<SubscribePage> {
                           TextFormField(
                             controller: emailController,
                             decoration: const InputDecoration(
-                              labelText: "E-posta",
-                              labelStyle: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 16,
-                                color: Colors.black,
-                              ),
-                              prefixIcon: Icon(Icons.mail, color: Color(0xff212435)),
-                              border: UnderlineInputBorder(),
+                              labelText: "E-pošta",
+                              prefixIcon: Icon(Icons.mail, color: Colors.blueAccent),
+                              border: OutlineInputBorder(),
                             ),
                             validator: (value) {
                               if (value == null || value.isEmpty) {
@@ -123,19 +114,14 @@ class SubscribePageState extends State<SubscribePage> {
                               return null;
                             },
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 16),
                           TextFormField(
                             controller: passwordController,
                             obscureText: true,
                             decoration: const InputDecoration(
                               labelText: "Geslo",
-                              labelStyle: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 16,
-                                color: Colors.black,
-                              ),
-                              prefixIcon: Icon(Icons.lock, color: Color(0xff212435)),
-                              border: UnderlineInputBorder(),
+                              prefixIcon: Icon(Icons.lock, color: Colors.blueAccent),
+                              border: OutlineInputBorder(),
                             ),
                             validator: (value) {
                               if (value == null || value.isEmpty) {
@@ -146,19 +132,14 @@ class SubscribePageState extends State<SubscribePage> {
                               return null;
                             },
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 16),
                           TextFormField(
                             controller: confirmPasswordController,
                             obscureText: true,
                             decoration: const InputDecoration(
                               labelText: "Potrditev Gesla",
-                              labelStyle: TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 16,
-                                color: Colors.black,
-                              ),
-                              prefixIcon: Icon(Icons.lock, color: Color(0xff212435)),
-                              border: UnderlineInputBorder(),
+                              prefixIcon: Icon(Icons.lock, color: Colors.blueAccent),
+                              border: OutlineInputBorder(),
                             ),
                             validator: (value) {
                               if (value != passwordController.text) {
@@ -167,10 +148,10 @@ class SubscribePageState extends State<SubscribePage> {
                               return null;
                             },
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 24),
                           MaterialButton(
                             onPressed: registerUser,
-                            color: const Color(0xff3a57e8),
+                            color: Colors.blueAccent,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8.0),
                             ),
@@ -185,27 +166,23 @@ class SubscribePageState extends State<SubscribePage> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 8),
-                        Align(
+                          const SizedBox(height: 16),
+                          Align(
                             alignment: Alignment.center,
-                            child: Row(
-                              children: [
-                                TextButton(
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(builder: (context) => const Login()),
-                                    );
-                                  },
-                                  child: const Text(
-                                    "Nazaj na vpis?",
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Color(0xff5e5e5e),
-                                    ),
-                                  ),
+                            child: TextButton(
+                              onPressed: () {
+                                Navigator.pushReplacement(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => const Login()),
+                                );
+                              },
+                              child: const Text(
+                                "Nazaj na vpis?",
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.blueAccent,
                                 ),
-                              ],
+                              ),
                             ),
                           ),
                         ],
