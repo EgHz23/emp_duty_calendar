@@ -4,10 +4,18 @@ import '../Data/database_helper.dart';
 import 'home.dart';
 import 'subscribePage.dart';
 import '../Data/providers.dart';
+import 'Model.dart';
+
 // StateProvider to handle the "Zapomni se me" checkbox state
 final rememberMeProvider = StateProvider<bool>((ref) => false);
 final emailProvider = StateProvider<String>((ref) => "");
 final passwordProvider = StateProvider<String>((ref) => "");
+final checkProvider = StateProvider<bool>((ref) => true);
+User? localUserData; // Global variable to store the user data
+
+Future<void> _loadLocalUserData() async {
+  localUserData = await loadUser();
+}
 
 class Login extends ConsumerStatefulWidget {
   const Login({super.key});
@@ -25,6 +33,7 @@ class _LoginState extends ConsumerState<Login> {
   void initState() {
     super.initState();
     _initializeRememberedCredentials();
+    _initializeData();
   }
 
   void _initializeRememberedCredentials() {
@@ -32,56 +41,64 @@ class _LoginState extends ConsumerState<Login> {
     final password = ref.read(passwordProvider);
 
     if (email.isNotEmpty && password.isNotEmpty) {
-      setState(() {
-        emailController.text = email;
-        passwordController.text = password;
-        ref.read(rememberMeProvider.notifier).state = true;
-      });
+      emailController.text = email;
+      passwordController.text = password;
+      ref.read(rememberMeProvider.notifier).state = true;
     }
   }
 
-  Future<void> loginUser() async {
-  if (_formKey.currentState!.validate()) {
-    final email = emailController.text.trim();
-    final password = passwordController.text.trim();
+  Future<void> _initializeData() async {
+    await _loadLocalUserData(); // Load user data asynchronously
+    if (localUserData != null) {
+      emailController.text = localUserData!.email;
+      passwordController.text = localUserData!.password;
+    }
+  }
 
-    try {
-      final user = await DatabaseHelper.instance.loginUser(email, password);
+  Future<bool> loginUser() async {
+    if (_formKey.currentState!.validate()) {
+      final email = emailController.text.trim();
+      final password = passwordController.text.trim();
 
-      if (user != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Login successful!")),
-        );
+      try {
+        final user = await DatabaseHelper.instance.loginUser(email, password);
 
-        // Save credentials if "Remember Me" is checked
-        if (ref.read(rememberMeProvider)) {
-          ref.read(emailProvider.notifier).state = email;
-          ref.read(passwordProvider.notifier).state = password;
+        if (user != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Login successful!")),
+          );
+
+          // Save credentials if "Remember Me" is checked
+          if (ref.read(rememberMeProvider)) {
+            ref.read(emailProvider.notifier).state = email;
+            ref.read(passwordProvider.notifier).state = password;
+          } else {
+            ref.read(emailProvider.notifier).state = "";
+            ref.read(passwordProvider.notifier).state = "";
+          }
+
+          // Update the currentUserProvider with the logged-in email
+          ref.read(currentUserProvider.notifier).state = email;
+
+          // Navigate to the Home page
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const HomePage()),
+          );
+          return true;
         } else {
-          ref.read(emailProvider.notifier).state = "";
-          ref.read(passwordProvider.notifier).state = "";
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Invalid email or password.")),
+          );
         }
-
-        // Update the currentUserProvider with the logged-in email
-        ref.read(currentUserProvider.notifier).state = email;
-
-        // Navigate to the Home page
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const HomePage()),
-        );
-      } else {
+      } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Invalid email or password.")),
+          SnackBar(content: Text("Error during login: $e")),
         );
       }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error during login: $e")),
-      );
     }
+    return false;
   }
-}
 
   @override
   Widget build(BuildContext context) {
@@ -136,13 +153,15 @@ class _LoginState extends ConsumerState<Login> {
                             controller: emailController,
                             decoration: const InputDecoration(
                               labelText: "E-pošta",
-                              prefixIcon: Icon(Icons.mail, color: Colors.blueAccent),
+                              prefixIcon:
+                                  Icon(Icons.mail, color: Colors.blueAccent),
                               border: OutlineInputBorder(),
                             ),
                             validator: (value) {
                               if (value == null || value.isEmpty) {
                                 return 'Prosimo vnesite e-pošto.';
-                              } else if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value)) {
+                              } else if (!RegExp(r'^[^@]+@[^@]+\.[^@]+')
+                                  .hasMatch(value)) {
                                 return 'Vnesite veljaven e-poštni naslov.';
                               }
                               return null;
@@ -154,7 +173,8 @@ class _LoginState extends ConsumerState<Login> {
                             obscureText: true,
                             decoration: const InputDecoration(
                               labelText: "Geslo",
-                              prefixIcon: Icon(Icons.lock, color: Colors.blueAccent),
+                              prefixIcon:
+                                  Icon(Icons.lock, color: Colors.blueAccent),
                               border: OutlineInputBorder(),
                             ),
                             validator: (value) {
@@ -170,14 +190,27 @@ class _LoginState extends ConsumerState<Login> {
                               Checkbox(
                                 value: rememberMe,
                                 onChanged: (value) {
-                                  ref.read(rememberMeProvider.notifier).state = value ?? false;
+                                  ref
+                                      .read(rememberMeProvider.notifier)
+                                      .state = value ?? false;
                                 },
                               ),
                             ],
                           ),
                           const SizedBox(height: 24),
                           MaterialButton(
-                            onPressed: loginUser,
+                            onPressed: () async {
+                              if (await loginUser()) {
+                                final saveLoginData =
+                                    ref.read(checkProvider.notifier).state;
+                                if (saveLoginData) {
+                                  await saveUser(User(
+                                    email: emailController.text,
+                                    password: passwordController.text,
+                                  ));
+                                }
+                              }
+                            },
                             color: Colors.blueAccent,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8.0),
@@ -200,7 +233,9 @@ class _LoginState extends ConsumerState<Login> {
                               onPressed: () {
                                 Navigator.pushReplacement(
                                   context,
-                                  MaterialPageRoute(builder: (context) => const SubscribePage()),
+                                  MaterialPageRoute(
+                                      builder: (context) =>
+                                          const SubscribePage()),
                                 );
                               },
                               child: const Text(
