@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import '../screens/VehiclesPage.dart';
 
 class AppDrawer extends StatefulWidget {
   final bool isDarkTheme;
@@ -28,7 +29,8 @@ class _AppDrawerState extends State<AppDrawer> {
 
   void _fetchQuoteOfTheDay() async {
     try {
-      final response = await http.get(Uri.parse('https://zenquotes.io/api/random'));  // API HERE
+      final response = await http
+          .get(Uri.parse('https://zenquotes.io/api/random')); // API HERE
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -67,23 +69,7 @@ class _AppDrawerState extends State<AppDrawer> {
                   'egzon@gmail.com',
                   style: TextStyle(color: Colors.white, fontSize: 16),
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  '"$_quote"',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontStyle: FontStyle.italic,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  "- $_author",
-                  style: const TextStyle(color: Colors.white, fontSize: 12),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                const SizedBox(height: 10)
               ],
             ),
           ),
@@ -106,6 +92,19 @@ class _AppDrawerState extends State<AppDrawer> {
             title: const Text('Change Password'),
             onTap: () {
               // Add Change Password functionality
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.directions_car),
+            title: const Text('Vehicles'),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      VehiclesPage(), // Directly navigate to VehiclesPage
+                ),
+              );
             },
           ),
         ],

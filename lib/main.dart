@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
+import 'screens/VehiclesPage.dart';
 import 'Data/DataBase.dart';
 import 'Data/database_helper.dart';
 import 'Data/HolidaysAPI.dart';
@@ -79,6 +79,6 @@ class MyApp extends ConsumerWidget {
       darkTheme: ThemeData.dark(),
       themeMode: isDarkTheme ? ThemeMode.dark : ThemeMode.light,
       home: const Login(),
-    );
+      );
   }
 }
